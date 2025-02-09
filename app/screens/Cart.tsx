@@ -9,25 +9,9 @@ import {
   Alert,
   Image,
 } from 'react-native';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  deleteDoc,
-  doc,
-  addDoc,
-} from 'firebase/firestore';
-import { FIREBASE_DB, FIREBASE_AUTH } from '../../FirebaseCongig';
-
-const COLORS = {
-  background: '#FFFAF0', // Fond crème pour un effet chaleureux
-  primary: '#D2691E', // Marron clair pour rappeler la cuisson
-  secondary: '#FF8C00', // Orange feu
-  text: '#5A3E1B', // Marron foncé pour le texte
-  textSecondary: '#A0522D', // Marron plus clair
-  inputBackground: '#FFF5E1', // Beige clair pour les champs de saisie
-};
+import { FIREBASE_AUTH } from '../../FirebaseCongig';
+import CommandeService, { CommandeRequest } from '../services/CommandeService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface CartItem {
   id: string;
@@ -38,12 +22,53 @@ interface CartItem {
   image?: string;
 }
 
+const CartStorage = {
+  async getItems(userId: string): Promise<CartItem[]> {
+    const cartKey = `cart-${userId}`;
+    const storedCart = await AsyncStorage.getItem(cartKey);
+    return storedCart ? JSON.parse(storedCart) : [];
+  },
+
+  async removeItem(userId: string, itemId: string): Promise<void> {
+    const cartKey = `cart-${userId}`;
+    const storedCart = await AsyncStorage.getItem(cartKey);
+    const cart = storedCart ? JSON.parse(storedCart) : [];
+    const newCart = cart.filter((item: CartItem) => item.id !== itemId);
+    await AsyncStorage.setItem(cartKey, JSON.stringify(newCart));
+  },
+
+  async updateQuantity(userId: string, itemId: string, quantity: number): Promise<void> {
+    const cartKey = `cart-${userId}`;
+    const storedCart = await AsyncStorage.getItem(cartKey);
+    const cart = storedCart ? JSON.parse(storedCart) : [];
+    const newCart = cart.map((item: CartItem) =>
+      item.id === itemId ? { ...item, quantity } : item
+    );
+    await AsyncStorage.setItem(cartKey, JSON.stringify(newCart));
+  },
+
+  async clearCart(userId: string): Promise<void> {
+    const cartKey = `cart-${userId}`;
+    await AsyncStorage.removeItem(cartKey);
+  }
+};
+
+const COLORS = {
+  background: '#FFFAF0',
+  primary: '#D2691E',
+  secondary: '#FF8C00',
+  text: '#5A3E1B',
+  textSecondary: '#A0522D',
+  inputBackground: '#FFF5E1',
+};
+
 interface Props {
   onBack: () => void;
 }
 
 const Cart: React.FC<Props> = ({ onBack }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const user = FIREBASE_AUTH.currentUser;
 
   useEffect(() => {
@@ -54,15 +79,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
     if (!user) return;
 
     try {
-      const cartRef = collection(FIREBASE_DB, 'panier');
-      const q = query(cartRef, where('userId', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-
-      const items = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as CartItem[];
-
+      const items = await CartStorage.getItems(user.uid);
       setCartItems(items);
     } catch (error) {
       console.error('Error loading cart:', error);
@@ -71,8 +88,10 @@ const Cart: React.FC<Props> = ({ onBack }) => {
   };
 
   const removeFromCart = async (itemId: string) => {
+    if (!user) return;
+    
     try {
-      await deleteDoc(doc(FIREBASE_DB, 'panier', itemId));
+      await CartStorage.removeItem(user.uid, itemId);
       setCartItems(cartItems.filter((item) => item.id !== itemId));
       Alert.alert('Succès', 'Article retiré du panier');
     } catch (error) {
@@ -81,58 +100,65 @@ const Cart: React.FC<Props> = ({ onBack }) => {
     }
   };
 
-  const updateQuantity = (itemId: string, increment: number) => {
-    setCartItems(
-      cartItems.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              quantity: Math.max(1, item.quantity + increment),
-            }
-          : item
-      )
-    );
+  const updateQuantity = async (itemId: string, increment: number) => {
+    if (!user) return;
+
+    const item = cartItems.find((item) => item.id === itemId);
+    if (!item) return;
+
+    const newQuantity = Math.max(1, item.quantity + increment);
+    try {
+      await CartStorage.updateQuantity(user.uid, itemId, newQuantity);
+      setCartItems(
+        cartItems.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                quantity: newQuantity,
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      console.error('Error updating quantity:', error);
+      Alert.alert('Erreur', 'Impossible de mettre à jour la quantité');
+    }
   };
 
   const placeOrder = async () => {
-    if (!user || cartItems.length === 0) return;
+    if (!user || cartItems.length === 0) {
+      Alert.alert('Erreur', 'Votre panier est vide');
+      return;
+    }
 
+    setLoading(true);
     try {
-      const orderTotal = cartItems.reduce(
-        (total, item) => total + item.prix * item.quantity,
-        0
-      );
+      // Créer la commande avec l'API
+      const newCommande: CommandeRequest = {
+        statut: 0,
+        id_client: user.uid,
+        plats: cartItems.map(item => ({
+          id: item.platId,
+          quantite: item.quantity
+        }))
+      };
 
-      // Créer la commande
-      const orderRef = collection(FIREBASE_DB, 'commandes');
-      await addDoc(orderRef, {
-        userId: user.uid,
-        items: cartItems.map(item => ({
-          platId: item.platId,
-          nom: item.nom,
-          prix: item.prix,
-          quantity: item.quantity
-        })),
-        total: orderTotal,
-        status: 'en_cours',
-        date: new Date().toISOString()
-      });
+      await CommandeService.createCommande(newCommande);
 
       // Vider le panier
-      for (const item of cartItems) {
-        await deleteDoc(doc(FIREBASE_DB, 'panier', item.id));
-      }
-
+      await CartStorage.clearCart(user.uid);
       setCartItems([]);
       Alert.alert('Succès', 'Commande passée avec succès');
     } catch (error) {
       console.error('Error placing order:', error);
       Alert.alert('Erreur', 'Impossible de passer la commande');
+    } finally {
+      setLoading(false);
     }
   };
 
   const getTotal = () => {
-    return cartItems.reduce((total, item) => total + item.prix * item.quantity, 0);
+    return cartItems.reduce((total, item) => total + (typeof item.prix === 'number' ? item.prix : 0) * item.quantity, 0);
   };
 
   return (
@@ -141,7 +167,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Panier</Text>
+        <Text style={styles.headerTitle}>Commande</Text>
       </View>
 
       <ScrollView style={styles.content}>
@@ -163,7 +189,9 @@ const Cart: React.FC<Props> = ({ onBack }) => {
 
             <View style={styles.itemDetails}>
               <Text style={styles.itemName}>{item.nom}</Text>
-              <Text style={styles.itemPrice}>{item.prix.toFixed(2)} €</Text>
+              <Text style={styles.itemPrice}>
+                {typeof item.prix === 'number' ? item.prix.toFixed(2) : '0.00'} €
+              </Text>
 
               <View style={styles.quantityControls}>
                 <TouchableOpacity

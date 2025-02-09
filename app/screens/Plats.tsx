@@ -12,12 +12,30 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-import { FIREBASE_AUTH } from '../../FirebaseCongig';
+import { FIREBASE_AUTH, FIREBASE_DB } from '../../FirebaseCongig';
 import { Ionicons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
 import { categorieService, Categorie } from '../services/categorieService';
 import { platService, Plat } from '../services/PlatService';
 import CommandeService, { CommandeRequest, PlatCommande } from '../services/CommandeService';
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const CartStorage = {
+  async addItem(userId: string, item: any) {
+    const cartKey = `cart-${userId}`;
+    const storedCart = await AsyncStorage.getItem(cartKey);
+    const cart = storedCart ? JSON.parse(storedCart) : [];
+
+    const existingItem = cart.find((i: any) => i.platId === item.platId);
+    if (existingItem) {
+      throw new Error('Item already in cart');
+    }
+
+    cart.push(item);
+    await AsyncStorage.setItem(cartKey, JSON.stringify(cart));
+  },
+};
 
 const windowWidth = Dimensions.get('window').width;
 const cardWidth = (windowWidth - 60) / 2;
@@ -36,6 +54,10 @@ interface Props {
   onCartPress: () => void;
   onStatsPress: () => void;
 }
+
+const generateId = () => {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 5);
+};
 
 const Plats: React.FC<Props> = ({ onPlatSelect, onCartPress, onStatsPress }) => {
   const [plats, setPlats] = useState<Plat[]>([]);
@@ -109,45 +131,23 @@ const Plats: React.FC<Props> = ({ onPlatSelect, onCartPress, onStatsPress }) => 
     }
 
     try {
-      // Récupérer la commande en cours pour l'utilisateur s'il en a une
-      const commandes = await CommandeService.getCommandesByClient(user.uid);
-      const commandeEnCours = commandes.find(c => c.statut === 0); // Chercher une commande avec statut 0 (panier)
+      await CartStorage.addItem(user.uid, {
+        id: generateId(),
+        platId: plat.id,
+        nom: plat.nom,
+        prix: parseFloat(plat.prix.montant),
+        quantity: 1,
+        image: plat.image
+      });
 
-      if (commandeEnCours) {
-        // Vérifier si le plat existe déjà dans la commande
-        const platExistant = commandeEnCours.plats.find((p: PlatCommande) => p.id === plat.id);
-        
-        if (platExistant) {
-          Alert.alert('Info', 'Ce plat est déjà dans votre panier');
-          return;
-        }
-
-        // Ajouter le nouveau plat à la commande existante
-        const updatedCommande: CommandeRequest = {
-          statut: 0,
-          id_client: user.uid,
-          plats: [
-            ...commandeEnCours.plats,
-            { id: plat.id, quantite: 1 }
-          ]
-        };
-
-        await CommandeService.updateCommande(commandeEnCours.id, updatedCommande);
-        Alert.alert('Succès', 'Plat ajouté à votre commande');
-      } else {
-        // Créer une nouvelle commande avec le plat
-        const newCommande: CommandeRequest = {
-          statut: 0,
-          id_client: user.uid,
-          plats: [{ id: plat.id, quantite: 1 }]
-        };
-
-        await CommandeService.createCommande(newCommande);
-        Alert.alert('Succès', 'Plat ajouté à votre panier');
-      }
+      Alert.alert('Succès', 'Plat ajouté au panier');
     } catch (error) {
-      console.error('Erreur d\'ajout au panier:', error);
-      Alert.alert('Erreur', 'Impossible d\'ajouter au panier');
+      if (error instanceof Error && error.message === 'Item already in cart') {
+        Alert.alert('Info', 'Ce plat est déjà dans votre panier');
+      } else {
+        console.error('Erreur d\'ajout au panier:', error);
+        Alert.alert('Erreur', 'Impossible d\'ajouter au panier');
+      }
     }
   };
 
