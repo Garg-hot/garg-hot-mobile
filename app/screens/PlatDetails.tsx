@@ -57,7 +57,7 @@ const PlatDetails: React.FC<Props> = ({ platId, onBack }) => {
         const plat = await platService.getPlatById(Number(platId));
         if (plat) {
           setPlatNom(plat.nom);
-          setPrix(plat.prix.montant);
+          setPrix(plat.prix);
           setPlatImage(plat.image);
           setIngredients(plat.ingredients.map(ing => ({
             id: String(ing.id),
