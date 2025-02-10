@@ -135,7 +135,7 @@ const Plats: React.FC<Props> = ({ onPlatSelect, onCartPress, onStatsPress }) => 
         id: generateId(),
         platId: plat.id,
         nom: plat.nom,
-        prix: parseFloat(plat.prix.montant),
+        prix: parseFloat(plat.prix), 
         quantity: 1,
         image: plat.image
       });
@@ -181,7 +181,7 @@ const Plats: React.FC<Props> = ({ onPlatSelect, onCartPress, onStatsPress }) => 
       <View style={styles.platInfo}>
         <Text style={styles.platName}>{item.nom}</Text>
         <Text style={styles.platPrice}>
-          {item.prix?.montant ? `${item.prix.montant} Ar` : 'Prix non disponible'}
+          {item.prix ? `${item.prix} Ar` : 'Prix non disponible'}
         </Text>
       </View>
       <TouchableOpacity 

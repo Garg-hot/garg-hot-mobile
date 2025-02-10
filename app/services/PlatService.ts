@@ -16,10 +16,7 @@ export interface Plat {
     id: number;
     nom: string;
   }[];
-  prix: {
-    id: number;
-    montant: string;
-  };
+  prix: string;
   image: string;
 }
 
