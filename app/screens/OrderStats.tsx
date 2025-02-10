@@ -1,135 +1,110 @@
-import React, { useEffect, useState } from 'react'; 
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
   SafeAreaView,
+  TouchableOpacity,
   Alert,
 } from 'react-native';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { FIREBASE_DB, FIREBASE_AUTH } from '../../FirebaseCongig';
+import { FIREBASE_AUTH } from '../../FirebaseCongig';
+import CommandeService from '../services/CommandeService';
 
 const COLORS = {
-  background: '#FFFAF0', // Fond crème pour un effet chaleureux
-  primary: '#D2691E', // Marron clair pour rappeler la cuisson
-  secondary: '#FF8C00', // Orange feu
-  text: '#5A3E1B', // Marron foncé pour le texte
-  textSecondary: '#A0522D', // Marron plus clair
-  inputBackground: '#FFF5E1', // Beige clair pour les champs de saisie
+  background: '#FFFAF0',
+  primary: '#D2691E',
+  secondary: '#FF8C00',
+  text: '#5A3E1B',
+  textSecondary: '#A0522D',
+  success: '#4CAF50',
+  warning: '#FFA000',
 };
-
-interface OrderItem {
-  platId: string;
-  nom: string;
-  prix: number;
-  quantity: number;
-}
-
-interface Order {
-  id: string;
-  date: string;
-  items: OrderItem[];
-  status: 'en_cours' | 'pret' | 'vendu';
-  total: number;
-  userId: string;
-}
 
 interface Props {
   onBack: () => void;
 }
 
+interface Plat {
+  id: number;
+  nom: string;
+  prix: number;
+  ingredients: { nom: string }[];
+  quantite: number;
+}
+
+interface Commande {
+  commande_id: number;
+  createdAt: string;
+  id_client: string;
+  plats: Plat[];
+  statut: number;
+}
+
 const OrderStats: React.FC<Props> = ({ onBack }) => {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [commandes, setCommandes] = useState<Commande[]>([]);
   const [loading, setLoading] = useState(true);
   const user = FIREBASE_AUTH.currentUser;
 
   useEffect(() => {
-    loadOrders();
+    loadCommandes();
   }, []);
 
-  const loadOrders = async () => {
-    if (!user) return;
+  const loadCommandes = async () => {
+    if (!user) {
+      console.log("Pas d'utilisateur connecté");
+      return;
+    }
 
+    setLoading(true);
     try {
-      const ordersRef = collection(FIREBASE_DB, 'commandes');
-      const q = query(ordersRef, where('userId', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-      
-      const ordersData: Order[] = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date || new Date().toISOString(),
-      } as Order));
-
-      // Trier les commandes par date (plus récentes en premier)
-      ordersData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
-      setOrders(ordersData);
-    } catch (error) {
-      console.error('Error loading orders:', error);
-      Alert.alert('Erreur', 'Impossible de charger les commandes');
+      console.log("Chargement des commandes pour l'utilisateur:", user.uid);
+      const data = await CommandeService.getCommandesByClient(user.uid);
+      console.log("Données reçues:", data);
+      setCommandes(data);
+    } catch (error: any) {
+      console.error("Erreur lors du chargement des commandes:", error);
+      Alert.alert(
+        'Erreur',
+        'Impossible de charger les commandes. ' + 
+        (error.response?.data?.message || error.message || 'Veuillez réessayer plus tard.')
+      );
+      setCommandes([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleStatusUpdate = async (orderId: string, newStatus: 'pret' | 'vendu') => {
-    try {
-      const orderRef = doc(FIREBASE_DB, 'commandes', orderId);
-      await updateDoc(orderRef, {
-        status: newStatus
-      });
-
-      // Mettre à jour l'état local
-      setOrders(orders.map(order => 
-        order.id === orderId 
-          ? { ...order, status: newStatus }
-          : order
-      ));
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
-    }
+  const getStatusText = (status: number) => {
+    return status === 1 ? 'Payé' : 'Non payé';
   };
 
-  const getStatusStyle = (status: string) => {
-    switch (status) {
-      case 'en_cours':
-        return styles.statusEnCours;
-      case 'pret':
-        return styles.statusPret;
-      case 'vendu':
-        return styles.statusVendu;
-      default:
-        return {};
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'en_cours':
-        return 'En cours';
-      case 'pret':
-        return 'Prêt';
-      case 'vendu':
-        return 'Vendu';
-      default:
-        return status;
-    }
+  const getStatusStyle = (status: number) => {
+    return status === 1 ? styles.statusPaid : styles.statusUnpaid;
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+    try {
+      if (!dateString) return 'Date inconnue';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('fr-FR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.error('Erreur de formatage de date:', error);
+      return 'Date invalide';
+    }
+  };
+
+  const calculateTotal = (plats: Plat[]) => {
+    if (!plats || !Array.isArray(plats)) return 0;
+    return plats.reduce((total, plat) => {
+      return total + (plat.prix * plat.quantite);
+    }, 0);
   };
 
   return (
@@ -138,52 +113,64 @@ const OrderStats: React.FC<Props> = ({ onBack }) => {
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Vente</Text>
+        <Text style={styles.headerTitle}>Mes Commandes</Text>
       </View>
 
       <ScrollView style={styles.content}>
-        {orders.map((order) => (
-          <View key={order.id} style={styles.orderCard}>
-            <View style={styles.orderHeader}>
-              <Text style={styles.orderDate}>{formatDate(order.date)}</Text>
-              <View style={[styles.statusBadge, getStatusStyle(order.status)]}>
-                <Text style={styles.statusText}>{getStatusText(order.status)}</Text>
-              </View>
-            </View>
-
-            {order.items.map((item, index) => (
-              <View key={index} style={styles.orderItem}>
-                <View style={styles.itemInfo}>
-                  <Text style={styles.itemName}>{item.nom}</Text>
-                  <Text style={styles.itemQuantity}>×{item.quantity}</Text>
-                </View>
-                <Text style={styles.itemPrice}>
-                  {(item.prix * item.quantity).toFixed(2)} €
+        {loading ? (
+          <Text style={styles.loadingText}>Chargement...</Text>
+        ) : commandes.length === 0 ? (
+          <Text style={styles.emptyText}>Aucune commande</Text>
+        ) : (
+          commandes.map((commande) => (
+            <View key={commande.commande_id} style={styles.orderCard}>
+              <View style={styles.orderHeader}>
+                <Text style={styles.orderDate}>
+                  {formatDate(commande.createdAt)}
+                </Text>
+                <Text style={[styles.orderStatus, getStatusStyle(commande.statut)]}>
+                  {getStatusText(commande.statut)}
                 </Text>
               </View>
-            ))}
 
-            <View style={styles.orderFooter}>
-              <Text style={styles.totalText}>Total: {order.total.toFixed(2)} €</Text>
-              {order.status === 'en_cours' && (
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => handleStatusUpdate(order.id, 'pret')}
-                >
-                  <Text style={styles.actionButtonText}>Marquer prêt</Text>
-                </TouchableOpacity>
-              )}
-              {order.status === 'pret' && (
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.actionButtonVendu]}
-                  onPress={() => handleStatusUpdate(order.id, 'vendu')}
-                >
-                  <Text style={styles.actionButtonText}>Marquer vendu</Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.platsContainer}>
+                {Array.isArray(commande.plats) && commande.plats.length > 0 ? (
+                  commande.plats.map((plat, index) => (
+                    <View key={index} style={styles.platItem}>
+                      <View style={styles.platHeader}>
+                        <Text style={styles.platName}>
+                          {plat.nom || 'Plat inconnu'}
+                        </Text>
+                        <View style={styles.platDetails}>
+                          <Text style={styles.platQuantity}>
+                            x{plat.quantite || 1}
+                          </Text>
+                          <Text style={styles.platPrice}>
+                            {plat.prix.toFixed(2)} Ar
+                          </Text>
+                        </View>
+                      </View>
+                      {plat.ingredients && plat.ingredients.length > 0 && (
+                        <Text style={styles.ingredients}>
+                          {plat.ingredients.map(ing => ing.nom).join(', ')}
+                        </Text>
+                      )}
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>Aucun plat dans cette commande</Text>
+                )}
+              </View>
+
+              <View style={styles.orderFooter}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalAmount}>
+                  {calculateTotal(commande.plats).toFixed(2)} Ar
+                </Text>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -197,111 +184,131 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#e0e0e0',
   },
   backButton: {
-    marginRight: 15,
+    padding: 8,
   },
   backButtonText: {
     fontSize: 24,
     color: COLORS.primary,
   },
-  title: {
-    fontSize: 24,
+  headerTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: COLORS.primary,
+    color: COLORS.text,
+    marginLeft: 16,
   },
   content: {
     flex: 1,
-    padding: 15,
+    padding: 16,
+  },
+  loadingText: {
+    textAlign: 'center',
+    color: COLORS.textSecondary,
+    marginTop: 20,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: COLORS.textSecondary,
+    marginTop: 20,
   },
   orderCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'white',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 16,
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   orderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   orderDate: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 16,
+    color: COLORS.text,
   },
-  statusBadge: {
+  orderStatus: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 'bold',
   },
-  statusEnCours: {
-    backgroundColor: COLORS.secondary,
+  statusPaid: {
+    backgroundColor: COLORS.success + '20',
+    color: COLORS.success,
   },
-  statusPret: {
-    backgroundColor: '#2ecc71',
+  statusUnpaid: {
+    backgroundColor: COLORS.warning + '20',
+    color: COLORS.warning,
   },
-  statusVendu: {
-    backgroundColor: '#95a5a6',
+  platsContainer: {
+    marginBottom: 12,
   },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  orderItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  platItem: {
+    flexDirection: 'column',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f0f0f0',
   },
-  itemInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  itemQuantity: {
-    marginLeft: 8,
-    color: '#666',
-  },
-  itemPrice: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.secondary,
-  },
-  orderFooter: {
-    marginTop: 15,
+  platHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
   },
-  totalText: {
+  platDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  platName: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  platQuantity: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    marginRight: 8,
+  },
+  platPrice: {
+    fontSize: 16,
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
+  ingredients: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  orderFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  totalAmount: {
     fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.primary,
-  },
-  actionButton: {
-    backgroundColor: COLORS.secondary,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  actionButtonVendu: {
-    backgroundColor: '#95a5a6',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
 });
 

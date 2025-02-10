@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface CartItem {
   id: string;
-  platId: string;
+  platId: number;
   nom: string;
   prix: number;
   quantity: number;
@@ -104,7 +104,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
         id_client: user.uid,
         plats: cartItems.map(item => ({
           id: item.platId,
-          quantite: item.quantity
+          quantite: 1 // La quantité est toujours 1
         }))
       };
 
