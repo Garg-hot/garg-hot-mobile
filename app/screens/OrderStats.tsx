@@ -138,7 +138,7 @@ const OrderStats: React.FC<Props> = ({ onBack }) => {
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Commandes</Text>
+        <Text style={styles.title}>Vente</Text>
       </View>
 
       <ScrollView style={styles.content}>
