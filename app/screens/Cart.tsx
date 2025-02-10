@@ -37,16 +37,6 @@ const CartStorage = {
     await AsyncStorage.setItem(cartKey, JSON.stringify(newCart));
   },
 
-  async updateQuantity(userId: string, itemId: string, quantity: number): Promise<void> {
-    const cartKey = `cart-${userId}`;
-    const storedCart = await AsyncStorage.getItem(cartKey);
-    const cart = storedCart ? JSON.parse(storedCart) : [];
-    const newCart = cart.map((item: CartItem) =>
-      item.id === itemId ? { ...item, quantity } : item
-    );
-    await AsyncStorage.setItem(cartKey, JSON.stringify(newCart));
-  },
-
   async clearCart(userId: string): Promise<void> {
     const cartKey = `cart-${userId}`;
     await AsyncStorage.removeItem(cartKey);
@@ -100,31 +90,6 @@ const Cart: React.FC<Props> = ({ onBack }) => {
     }
   };
 
-  const updateQuantity = async (itemId: string, increment: number) => {
-    if (!user) return;
-
-    const item = cartItems.find((item) => item.id === itemId);
-    if (!item) return;
-
-    const newQuantity = Math.max(1, item.quantity + increment);
-    try {
-      await CartStorage.updateQuantity(user.uid, itemId, newQuantity);
-      setCartItems(
-        cartItems.map((item) =>
-          item.id === itemId
-            ? {
-                ...item,
-                quantity: newQuantity,
-              }
-            : item
-        )
-      );
-    } catch (error) {
-      console.error('Error updating quantity:', error);
-      Alert.alert('Erreur', 'Impossible de mettre à jour la quantité');
-    }
-  };
-
   const placeOrder = async () => {
     if (!user || cartItems.length === 0) {
       Alert.alert('Erreur', 'Votre panier est vide');
@@ -158,7 +123,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
   };
 
   const getTotal = () => {
-    return cartItems.reduce((total, item) => total + (typeof item.prix === 'number' ? item.prix : 0) * item.quantity, 0);
+    return cartItems.reduce((total, item) => total + (typeof item.prix === 'number' ? item.prix : 0), 0);
   };
 
   return (
@@ -190,33 +155,12 @@ const Cart: React.FC<Props> = ({ onBack }) => {
             <View style={styles.itemDetails}>
               <Text style={styles.itemName}>{item.nom}</Text>
               <Text style={styles.itemPrice}>
-                {typeof item.prix === 'number' ? item.prix.toFixed(2) : '0.00'} €
+                {typeof item.prix === 'number' ? `${item.prix.toFixed(2)} Ar` : '0.00 Ar'}
               </Text>
 
-              <View style={styles.quantityControls}>
-                <TouchableOpacity
-                  onPress={() => updateQuantity(item.id, -1)}
-                  style={[styles.quantityButton, item.quantity === 1 && styles.quantityButtonDisabled]}
-                  disabled={item.quantity === 1}
-                >
-                  <Text style={[styles.quantityButtonText, item.quantity === 1 && styles.quantityButtonTextDisabled]}>-</Text>
-                </TouchableOpacity>
-                
-                <View style={styles.quantityValue}>
-                  <Text style={styles.quantityText}>{item.quantity}</Text>
-                </View>
-
-                <TouchableOpacity
-                  onPress={() => updateQuantity(item.id, 1)}
-                  style={styles.quantityButton}
-                >
-                  <Text style={styles.quantityButtonText}>+</Text>
-                </TouchableOpacity>
-              </View>
-
               <TouchableOpacity
-                style={styles.removeButton}
                 onPress={() => removeFromCart(item.id)}
+                style={styles.removeButton}
               >
                 <Text style={styles.removeButtonText}>Retirer</Text>
               </TouchableOpacity>
@@ -229,7 +173,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
         <View style={styles.footer}>
           <View style={styles.totalContainer}>
             <Text style={styles.totalLabel}>Total:</Text>
-            <Text style={styles.totalPrice}>{getTotal().toFixed(2)} €</Text>
+            <Text style={styles.totalPrice}>{getTotal().toFixed(2)} Ar</Text>
           </View>
 
           <TouchableOpacity
@@ -237,7 +181,7 @@ const Cart: React.FC<Props> = ({ onBack }) => {
             onPress={placeOrder}
           >
             <Text style={styles.orderButtonText}>
-              Commander • {getTotal().toFixed(2)} €
+              Commander • {getTotal().toFixed(2)} Ar
             </Text>
           </TouchableOpacity>
         </View>
@@ -323,38 +267,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary, // Marron clair
     fontWeight: '600',
     marginBottom: 10,
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  quantityButton: {
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.secondary, // Orange feu
-    borderRadius: 15,
-  },
-  quantityButtonDisabled: {
-    backgroundColor: '#e0e0e0',
-  },
-  quantityButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  quantityButtonTextDisabled: {
-    color: '#999',
-  },
-  quantityValue: {
-    width: 40,
-    alignItems: 'center',
-  },
-  quantityText: {
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   removeButton: {
     backgroundColor: '#d32f2f', // Red for remove button
